@@ -3,7 +3,8 @@ package unsuck
 import scala.concurrent.Future
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Try
-import scalaz.OptionT
+import scalaz.{EitherT, OptionT}
+import scalaz.{-\/, \/, \/-}
 import scalaz.std.scalaFuture.futureInstance
 
 object Futures {
@@ -13,11 +14,11 @@ object Futures {
     val xO = Try(args(0).toInt).toOption
     val yO = Try(args(1).toInt).toOption
 
-    val xF = Future(Try(args(0).toInt).toOption.getOrElse(-1234))
-    val yF = Future(Try(args(1).toInt).toOption.getOrElse(-1234))
+    val xF = Future(xO.getOrElse(-1234))
+    val yF = Future(yO.getOrElse(-1234))
 
-    val xFO = Future(Try(args(0).toInt).toOption)
-    val yFO = Future(Try(args(1).toInt).toOption)
+    val xFO = Future(xO)
+    val yFO = Future(yO)
 
     println(s"addOption: ${addOption(xO, yO).getOrElse(-1234)}")
     println(s"addOption2: ${addOption2(xO, yO).getOrElse(-1234)}")
@@ -35,6 +36,47 @@ object Futures {
     }
     addAnyMonadOption(AnyMonadOption(xFO), AnyMonadOption(yFO)).inner.onSuccess { case iO => println(s"addAnyMonadOption: ${iO.getOrElse(-1234)}") }
     addOptionT(OptionT(xFO), OptionT(yFO)).run.onSuccess { case iO => println(s"addOptionT: ${iO.getOrElse(-1234)}") }
+
+    println(s"age(Erik): ${age("Erik")}")
+    println(s"age(Roland): ${age("Roland")}")
+
+    val totalAge = for {
+      x <- age("Erik")
+      y <- age("Roland")
+      z <- age("Martin")
+    } yield x + y + z
+    println(s"totalAge: ${totalAge}")
+
+    val totalAge2 = for {
+      x <- EitherT(age2("Erik"))
+      y <- EitherT(age2("John"))
+      z <- EitherT(age2("Jane"))
+    } yield x + y + z
+    totalAge2.run.onSuccess {
+      case \/-(t) => println(s"totalAge2(right): ${t}")
+      case -\/(s) => println(s"totalAge2(left): ${s}")
+    }
+
+    val totalAge3 = for {
+      x <- EitherT(age2("Erik"))
+      y <- EitherT(age2("Roland"))
+      z <- EitherT(age2("Martin"))
+    } yield x + y + z
+    totalAge3.run.onSuccess {
+      case \/-(t) => println(s"totalAge3(right): ${t}")
+      case -\/(s) => println(s"totalAge3(left): ${s}")
+    }
+
+    val totalAge4 = addMisc(Future {
+      yO match {
+        case Some(v) => \/-(v)
+        case None => -\/("v is missing")
+      }}, yO, yF
+    )
+    totalAge4.run.onSuccess {
+      case \/-(t) => println(s"totalAge4(right): ${t}")
+      case -\/(s) => println(s"totalAge4(left): ${s}")
+    }
   }
 
   def addOption(xO: Option[Int], yO: Option[Int]): Option[Int] = {
@@ -88,6 +130,31 @@ object Futures {
       x <- xOT
       y <- yOT
     } yield x + y
+  }
+
+  def age(name: String): String \/ Int = name match {
+    case "Erik" => \/-(30)
+    case other => -\/(s"Age of ${other} is unknown")
+  }
+
+  def age2(name: String): Future[String \/ Int] = Future {
+    name match {
+      case "Erik" => \/-(30)
+      case "Roland" => \/-(52)
+      case "Martin" => \/-(58)
+      case other => -\/(s"Age of ${other} is unknown")
+    }
+  }
+
+  def addMisc(x: Future[String \/ Int], y: Option[Int], z: Future[Int]): EitherT[Future, String, Int] = {
+    for {
+      a <- EitherT(x)
+      b <- EitherT(Future(y.isDefined match {
+        case true => \/-(y.get)
+        case false => -\/("y is missing")
+      }))
+      c <- EitherT(z.map(v => \/.right(v)))
+    } yield a + b + c
   }
 }
 
