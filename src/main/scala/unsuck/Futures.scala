@@ -153,6 +153,7 @@ object Futures {
         case true => \/-(y.get)
         case false => -\/("y is missing")
       }))
+      //b <- EitherT(Future(y \/> "y is missing"))
       c <- EitherT(z.map(v => \/.right(v)))
     } yield a + b + c
   }
